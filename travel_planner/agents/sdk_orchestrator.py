@@ -273,11 +273,13 @@ async def _run_query_analysis_sdk(user_input: str) -> tuple[str, str]:
             name="Travel Query Analyzer",
             model=model,
             instructions=(
-                "Analyze the travel request only. Return a concise JSON object with "
-                "origin, destination, duration_days, departure_date, return_date, "
-                "travelers, budget_min, budget_max, interests, and special_requirements. "
-                "Use null for unknown values. Do not create an itinerary, browse websites, "
-                "delegate to other agents, or invent missing details."
+                "Create a complete, user-facing travel itinerary in readable Markdown, not JSON. "
+                "Use the origin, destination, trip duration, traveler count, budget, interests, "
+                "and special requirements supplied by the user. Include a trip overview, a "
+                "day-by-day schedule, transport options, accommodation suggestions, an estimated "
+                "budget breakdown, and practical travel notes. If details are missing, state "
+                "reasonable assumptions. Never claim live prices, availability, or bookings are "
+                "confirmed unless verified. Do not output a JSON object."
             ),
         )
         result = await Runner.run(analyzer, user_input[:6000], max_turns=1)
