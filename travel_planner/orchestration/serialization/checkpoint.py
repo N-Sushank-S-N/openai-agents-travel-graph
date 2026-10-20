@@ -285,7 +285,7 @@ class CheckpointManager:
             retry_count=checkpoint_data.get("retry_count", {}),
             interrupted=checkpoint_data.get("interrupted", False),
             interruption_reason=checkpoint_data.get("interruption_reason"),
-            checkpoint_id=checkpoint_data.get("checkpoint_id"),
+            saved_checkpoint_id=checkpoint_data.get("checkpoint_id"),
             progress=checkpoint_data.get("progress", 0.0),
             stage_progress=checkpoint_data.get("stage_progress", {}),
             parallel_tasks=checkpoint_data.get("parallel_tasks", []),

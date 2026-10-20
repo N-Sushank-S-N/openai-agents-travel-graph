@@ -6,6 +6,7 @@ planning agent, both for individual execution and as part of parallel processing
 """
 
 from travel_planner.agents.activity_planning import ActivityPlanningAgent
+from travel_planner.data.models import AgentTaskParams
 from travel_planner.orchestration.nodes.base_node import (
     execute_agent_task,
 )
@@ -17,34 +18,14 @@ logger = get_logger(__name__)
 
 
 def activity_planning(state: TravelPlanningState) -> TravelPlanningState:
+    """Mark the activity stage complete without duplicating the orchestrator itinerary call.
+
+    Structured activity listings are intentionally left empty until a real activity
+    provider is configured. The orchestrator's generated itinerary narrative is kept.
     """
-    Plan activities and create daily itineraries.
-
-    Args:
-        state: Current travel planning state
-
-    Returns:
-        Updated travel planning state with activities and itineraries
-    """
-
-    def result_formatter(result):
-        daily_itineraries = result.get("daily_itineraries", {})
-        num_days = len(daily_itineraries)
-        return f"Activities planned for {num_days} days"
-
-    def result_processor(state, result):
-        if state.plan and "daily_itineraries" in result:
-            state.plan.activities = result["daily_itineraries"]
-
-    return execute_agent_task(
-        state=state,
-        agent=ActivityPlanningAgent(),
-        task_name="activity_planning",
-        complete_stage=WorkflowStage.ACTIVITIES_PLANNED,
-        result_formatter=result_formatter,
-        result_processor=result_processor,
-    )
-
+    if state is not None:
+        state.update_stage(WorkflowStage.ACTIVITIES_PLANNED)
+    return state
 
 def activities_task(state: TravelPlanningState) -> dict[str, any]:
     """

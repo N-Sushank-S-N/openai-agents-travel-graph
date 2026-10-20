@@ -12,18 +12,20 @@ from travel_planner.orchestration.nodes.base_node import (
 from travel_planner.orchestration.states.planning_state import TravelPlanningState
 from travel_planner.orchestration.states.workflow_stages import WorkflowStage
 from travel_planner.utils.logging import get_logger
-
+from travel_planner.data.models import NodeFunctionParams
 logger = get_logger(__name__)
 
 
 # Using the factory function for a simpler implementation
 accommodation_search = create_node_function(
-    agent_class=AccommodationAgent,
-    task_name="accommodation_search",
-    complete_stage=WorkflowStage.ACCOMMODATION_SEARCHED,
-    result_field="accommodations",
-    plan_field="accommodation",
-    message_template="Found {count} accommodation options",
+    NodeFunctionParams(
+        agent_class=AccommodationAgent,
+        task_name="accommodation_search",
+        complete_stage=WorkflowStage.ACCOMMODATION_SEARCHED,
+        result_field="accommodations",
+        plan_field="accommodation",
+        message_template="Found {count} accommodation options",
+    )
 )
 
 

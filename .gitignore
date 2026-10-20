@@ -151,3 +151,11 @@ cython_debug/
 CLAUDE.md
 
 **/.claude/settings.local.json
+
+# Local debugging and repair artifacts
+.repair-backups/
+repair_*.py
+preflight_tavily_firecrawl.py
+integrate_tavily_firecrawl_once.py
+fix_web_research_test_isolation.py
+travel_planner/orchestration/core/graph_builder.py.bak

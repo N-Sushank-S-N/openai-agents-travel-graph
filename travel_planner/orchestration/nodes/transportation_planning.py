@@ -12,18 +12,20 @@ from travel_planner.orchestration.nodes.base_node import (
 from travel_planner.orchestration.states.planning_state import TravelPlanningState
 from travel_planner.orchestration.states.workflow_stages import WorkflowStage
 from travel_planner.utils.logging import get_logger
-
+from travel_planner.data.models import NodeFunctionParams
 logger = get_logger(__name__)
 
 
 # Using the factory function for a simpler implementation
 transportation_planning = create_node_function(
-    agent_class=TransportationAgent,
-    task_name="transportation_planning",
-    complete_stage=WorkflowStage.TRANSPORTATION_PLANNED,
-    result_field="transportation_options",
-    plan_field="transportation",
-    message_template="Local transportation planned with {count} options",
+    NodeFunctionParams(
+        agent_class=TransportationAgent,
+        task_name="transportation_planning",
+        complete_stage=WorkflowStage.TRANSPORTATION_PLANNED,
+        result_field="transportation_options",
+        plan_field="transportation",
+        message_template="Local transportation planned with {count} options",
+    )
 )
 
 

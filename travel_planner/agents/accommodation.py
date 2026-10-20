@@ -5,7 +5,9 @@ This module implements the specialized agent responsible for searching,
 comparing, and recommending accommodation options for the travel itinerary.
 """
 
+import re
 from dataclasses import dataclass, field
+from pydantic import Field
 from enum import Enum
 from typing import Any
 
@@ -57,7 +59,6 @@ class AccommodationOption:
             return f"{self.price_per_night:.2f} {self.currency}"
 
 
-@dataclass
 class AccommodationSearchContext(AgentContext):
     """Context for the accommodation search agent."""
 
@@ -68,11 +69,11 @@ class AccommodationSearchContext(AgentContext):
     rooms: int = 1
     accommodation_type: AccommodationType | None = None
     max_price: float | None = None
-    amenities: list[str] = field(default_factory=list)
-    accommodation_options: list[AccommodationOption] = field(default_factory=list)
+    amenities: list[str] = Field(default_factory=list)
+    accommodation_options: list[AccommodationOption] = Field(default_factory=list)
     selected_accommodation: AccommodationOption | None = None
-    search_params: dict[str, Any] = field(default_factory=dict)
-    search_results_raw: dict[str, Any] = field(default_factory=dict)
+    search_params: dict[str, Any] = Field(default_factory=dict)
+    search_results_raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class AccommodationAgent(BaseAgent[AccommodationSearchContext]):
@@ -145,181 +146,61 @@ class AccommodationAgent(BaseAgent[AccommodationSearchContext]):
             logger.error(error_msg)
             return {"error": error_msg}
 
-    async def process(
-        self,
-        input_data: str | list[dict[str, Any]],
-        context: AccommodationSearchContext,
-    ) -> dict[str, Any]:
-        """
-        Process the accommodation search request.
-
-        Args:
-            input_data: User input or conversation history
-            context: Accommodation search context
-
-        Returns:
-            Accommodation search results
-        """
-        # Prepare messages for the model (used later if needed)
-        # We'll generate custom messages for each specific task
-
-        # Extract search parameters if not already set
+    async def process(self, input_data, context):
+        """Search without fabricating hotel offers or making redundant model calls."""
+        if context is None:
+            context = AccommodationSearchContext()
         if not context.search_params:
             await self._extract_search_parameters(input_data, context)
-
-        # Perform the accommodation search
         search_results = await self._search_accommodations(context)
-
-        # Process and rank accommodation options
         ranked_options = await self._rank_accommodation_options(search_results, context)
-
-        # Store the top options in the context
         context.accommodation_options = ranked_options
-
-        # Generate a summary of the accommodation options
-        summary = await self._generate_options_summary(ranked_options, context)
-
-        return {
-            "context": context,
-            "accommodations": ranked_options,
-            "summary": summary,
-        }
-
-    async def _extract_search_parameters(
-        self,
-        input_data: str | list[dict[str, Any]],
-        context: AccommodationSearchContext,
-    ) -> None:
-        """
-        Extract accommodation search parameters from user input.
-
-        Args:
-            input_data: User input or conversation history
-            context: Accommodation search context
-        """
-        # Prepare a specific prompt for parameter extraction
-        extraction_prompt = (
-            "Please extract accommodation search parameters from the following "
-            "user input. "
-            "Include destination, check-in and check-out dates, number of guests, "
-            "room preferences, accommodation type, price range, and required "
-            "amenities. "
-            "Format your response as a JSON object.\n\n"
-            "User input: {input}"
-        )
-
-        user_input = (
-            input_data
-            if isinstance(input_data, str)
-            else self._get_latest_user_input(input_data)
-        )
-
-        messages = [
-            {"role": "system", "content": self.instructions},
-            {"role": "user", "content": extraction_prompt.format(input=user_input)},
-        ]
-
-        # Add current parameters as context if they exist
-        if context.search_params:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": f"Current parameters: {context.search_params}",
-                }
+        if ranked_options:
+            summary = await self._generate_options_summary(ranked_options, context)
+        else:
+            summary = (
+                f"No verified accommodation offers are available for {context.destination or 'this destination'}. "
+                "Configure a real accommodation-search provider."
             )
+        return {"context": context, "accommodations": ranked_options, "summary": summary}
 
-        # Call the model and parse the response
-        # In a real implementation, we would parse the JSON response
-        # and update the context with the extracted parameters
-        await self._call_model(messages)  # Ignoring result in this demo
-
-        # For now, we'll set some example values for demonstration
-        context.destination = "Paris, France"
-        context.check_in_date = "2025-06-15"
-        context.check_out_date = "2025-06-22"
-        context.guests = 2
-        context.rooms = 1
-        context.accommodation_type = AccommodationType.HOTEL
-        context.max_price = 300.0
-        context.amenities = ["wifi", "breakfast", "pool"]
-
-        # Store the parameters in the search_params dictionary
+    async def _extract_search_parameters(self, input_data, context):
+        """Use only request/context fields; do not overwrite them with demo defaults."""
+        text = input_data if isinstance(input_data, str) else self._get_latest_user_input(input_data)
+        for line in text.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            key, value = key.strip().lower(), value.strip()
+            if key == "destination" and value and not context.destination:
+                context.destination = value
+            elif key in {"check-in", "check in", "check-in date"} and value and not context.check_in_date:
+                context.check_in_date = value
+            elif key in {"check-out", "check out", "check-out date"} and value and not context.check_out_date:
+                context.check_out_date = value
+            elif key == "travelers" and value:
+                try:
+                    context.guests = int(value)
+                except ValueError:
+                    pass
         context.search_params = {
             "destination": context.destination,
             "check_in_date": context.check_in_date,
             "check_out_date": context.check_out_date,
             "guests": context.guests,
             "rooms": context.rooms,
-            "accommodation_type": context.accommodation_type,
+            "accommodation_type": context.accommodation_type.value if context.accommodation_type else None,
             "max_price": context.max_price,
-            "amenities": context.amenities,
+            "amenities": list(context.amenities),
         }
 
-    async def _search_accommodations(
-        self, context: AccommodationSearchContext
-    ) -> list[dict[str, Any]]:
-        """
-        Search for accommodations based on the context parameters.
-
-        Args:
-            context: Accommodation search context
-
-        Returns:
-            List of accommodation search results
-        """
-        # In a real implementation, this would call accommodation search APIs
-        # For demonstration, we'll create some mock accommodation options
-
-        mock_accommodations = [
-            {
-                "id": "hotel1",
-                "name": "Grand Hotel Paris",
-                "type": "hotel",
-                "location": "Paris, France",
-                "price_per_night": 250.0,
-                "currency": "EUR",
-                "rating": 4.5,
-                "amenities": ["wifi", "breakfast", "pool", "spa"],
-                "description": "Luxury hotel in the heart of Paris",
-                "address": "1 Rue de Rivoli, 75001 Paris, France",
-                "refundable": True,
-                "reviews_count": 1250,
-            },
-            {
-                "id": "apartment1",
-                "name": "Eiffel Tower View Apartment",
-                "type": "apartment",
-                "location": "Paris, France",
-                "price_per_night": 180.0,
-                "currency": "EUR",
-                "rating": 4.3,
-                "amenities": ["wifi", "kitchen", "washer"],
-                "description": "Cozy apartment with stunning views of the Eiffel Tower",
-                "address": "15 Avenue de la Bourdonnais, 75007 Paris, France",
-                "refundable": False,
-                "reviews_count": 320,
-            },
-            {
-                "id": "hotel2",
-                "name": "Boutique Hotel Marais",
-                "type": "hotel",
-                "location": "Paris, France",
-                "price_per_night": 210.0,
-                "currency": "EUR",
-                "rating": 4.7,
-                "amenities": ["wifi", "breakfast", "bar"],
-                "description": "Charming boutique hotel in the historic Marais "
-                "district",
-                "address": "25 Rue des Archives, 75004 Paris, France",
-                "refundable": True,
-                "reviews_count": 850,
-            },
-        ]
-
-        # Store the raw search results in the context
-        context.search_results_raw = {"results": mock_accommodations}
-
-        return mock_accommodations
+    async def _search_accommodations(self, context):
+        """Return no offers until a real accommodation-search integration is configured."""
+        logger.warning(
+            "No live accommodation provider configured; refusing to return demo hotel offers."
+        )
+        context.search_results_raw = {"results": []}
+        return []
 
     async def _rank_accommodation_options(
         self, search_results: list[dict[str, Any]], context: AccommodationSearchContext

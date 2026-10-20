@@ -1,6 +1,7 @@
 """
 Unit tests for the base agent class.
 """
+import os
 
 # Import mock OpenAI before anything else
 from tests.unit.mock_openai import setup_mock_openai
@@ -32,7 +33,9 @@ def test_agent_initialization():
 
     assert agent.name == "Test Agent"
     assert agent.instructions == "Test instructions"
-    assert agent.config.model == "gpt-4o"  # Default model
+    use_gemini_endpoint = bool(os.getenv("GEMINI_API_KEY")) and "generativelanguage.googleapis.com" in os.getenv("OPENAI_BASE_URL", "")
+    expected_model = os.getenv("DEFAULT_MODEL", "gemini-3.8-flash" if use_gemini_endpoint else "gpt-4o")
+    assert agent.config.model == expected_model  # active provider/model configuration
     assert agent.config.temperature == DEFAULT_TEMPERATURE  # Default temperature
 
 

@@ -96,25 +96,39 @@ class AgentLogger:
         )
         self.logger = logger.bind(agent_name=agent_name, agent_id=agent_id)
 
-    def debug(self, message: str, **kwargs):
+    @staticmethod
+    def _format_message(message: str, args: tuple[Any, ...]) -> str:
+        """Support standard logging-style positional message arguments."""
+        if not args:
+            return message
+        try:
+            if "%" in message:
+                return message % args
+            if "{" in message:
+                return message.format(*args)
+        except (IndexError, KeyError, TypeError, ValueError):
+            pass
+        return f"{message} {' '.join(str(arg) for arg in args)}"
+
+    def debug(self, message: str, *args, **kwargs):
         """Log a debug message with agent context."""
-        self.logger.debug(message, **kwargs)
+        self.logger.debug(self._format_message(message, args), **kwargs)
 
-    def info(self, message: str, **kwargs):
+    def info(self, message: str, *args, **kwargs):
         """Log an info message with agent context."""
-        self.logger.info(message, **kwargs)
+        self.logger.info(self._format_message(message, args), **kwargs)
 
-    def warning(self, message: str, **kwargs):
+    def warning(self, message: str, *args, **kwargs):
         """Log a warning message with agent context."""
-        self.logger.warning(message, **kwargs)
+        self.logger.warning(self._format_message(message, args), **kwargs)
 
-    def error(self, message: str, **kwargs):
+    def error(self, message: str, *args, **kwargs):
         """Log an error message with agent context."""
-        self.logger.error(message, **kwargs)
+        self.logger.error(self._format_message(message, args), **kwargs)
 
-    def critical(self, message: str, **kwargs):
+    def critical(self, message: str, *args, **kwargs):
         """Log a critical message with agent context."""
-        self.logger.critical(message, **kwargs)
+        self.logger.critical(self._format_message(message, args), **kwargs)
 
     def log_api_request(
         self, api_name: str, endpoint: str, params: dict[str, Any] | None = None

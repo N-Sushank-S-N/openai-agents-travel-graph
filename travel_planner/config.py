@@ -99,7 +99,7 @@ class APIConfig(BaseModel):
     def from_env(cls) -> "APIConfig":
         """Create an APIConfig from environment variables."""
         return cls(
-            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            openai_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY", ""),
             supabase_url=os.getenv("SUPABASE_URL", ""),
             supabase_key=os.getenv("SUPABASE_KEY", ""),
             tavily_api_key=os.getenv("TAVILY_API_KEY"),

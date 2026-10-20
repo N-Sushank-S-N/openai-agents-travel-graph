@@ -5,7 +5,7 @@ This module serves as the application's entry point, initializing the necessary
 components and providing a CLI interface for interacting with the travel planning
 system.
 """
-
+from __future__ import annotations
 import argparse
 import asyncio
 import json
@@ -13,6 +13,7 @@ import os
 import sys
 import traceback
 from datetime import date, datetime
+from typing import TextIO
 
 from travel_planner.agents.accommodation import AccommodationAgent
 from travel_planner.agents.activity_planning import ActivityPlanningAgent
@@ -222,12 +223,12 @@ async def run_interactive_mode(args: argparse.Namespace) -> None:
             state = await workflow.execute(state)
 
             # Store the travel plan for later saving
-            if state and state.travel_plan:
-                travel_plan = state.travel_plan
+            if state and state.plan:
+                travel_plan = state.plan
 
             # Display the results
-            if state and state.travel_plan:
-                display_travel_plan(state.travel_plan)
+            if state and state.plan:
+                display_travel_plan(state.plan)
             elif state and state.error:
                 print(f"\nTravel Planner: I encountered an issue: {state.error}")
             else:
@@ -1205,15 +1206,20 @@ async def run_query_mode(args: argparse.Namespace) -> TravelPlanningState:
     logger.info("Executing travel planning workflow")
     final_state = await workflow.execute(state)
 
-    # Save the results if requested
-    if args.save_to and final_state and final_state.travel_plan:
-        await save_travel_plan(final_state.travel_plan, args.save_to, args.format)
+    # Save only typed TravelPlan objects. LangGraph currently returns dict-like state,
+    # whose nested plan is rendered from its narrative below rather than blindly serialized.
+    plan_to_save = _state_value(final_state, "plan")
+    if args.save_to and plan_to_save is not None and hasattr(plan_to_save, "model_dump"):
+        await save_travel_plan(plan_to_save, args.save_to, args.format)
         logger.info(f"Travel plan saved to {args.save_to}")
+    elif args.save_to and plan_to_save is not None:
+        logger.warning("Skipping file save: graph returned a mapping plan that is not validated as TravelPlan.")
 
-    # Save to database if requested
-    if args.save_to_db and final_state and final_state.travel_plan:
-        await save_to_database(final_state.travel_plan)
+    if args.save_to_db and plan_to_save is not None and hasattr(plan_to_save, "model_dump"):
+        await save_to_database(plan_to_save)
         logger.info("Travel plan saved to database")
+    elif args.save_to_db and plan_to_save is not None:
+        logger.warning("Skipping database save: graph returned a mapping plan that is not validated as TravelPlan.")
 
     return final_state
 
@@ -1305,43 +1311,9 @@ async def save_to_database(travel_plan: TravelPlan) -> None:
 
 
 def create_travel_workflow(args: argparse.Namespace) -> TravelWorkflow:
-    """
-    Create a TravelWorkflow with all necessary agents and components.
+    """Create the travel-planning workflow."""
 
-    Args:
-        args: Command-line arguments
-
-    Returns:
-        Configured TravelWorkflow
-    """
-    # Initialize research tools
-    research_tools = DestinationResearchTools()
-
-    # Set up browser automation options
-    browser_options = {
-        "headless": args.headless,
-        "use_cache": not args.no_cache,
-    }
-
-    # Initialize agents
-    destination_agent = DestinationResearchAgent(research_tools=research_tools)
-    flight_agent = FlightSearchAgent(browser_options=browser_options)
-    accommodation_agent = AccommodationAgent(browser_options=browser_options)
-    transportation_agent = TransportationAgent(browser_options=browser_options)
-    activity_agent = ActivityPlanningAgent(research_tools=research_tools)
-    budget_agent = BudgetManagementAgent()
-
-    # Create the workflow
-    workflow = TravelWorkflow(
-        destination_research_agent=destination_agent,
-        flight_search_agent=flight_agent,
-        accommodation_agent=accommodation_agent,
-        transportation_agent=transportation_agent,
-        activity_planning_agent=activity_agent,
-        budget_management_agent=budget_agent,
-    )
-
-    return workflow
+    return TravelWorkflow()
 
 
 async def main() -> int:
@@ -1504,21 +1476,77 @@ async def _run_selected_mode(args: argparse.Namespace) -> int:
         return 0
 
 
-async def _run_query_mode_with_display(args: argparse.Namespace) -> int:
-    """Run the travel planner in query mode and display results."""
-    # Run in query mode
-    final_state = await run_query_mode(args)
+def _state_value(state, name: str, default=None):
+    """Read a field from either a Pydantic state object or LangGraph's dict-like result."""
+    getter = getattr(state, "get", None)
+    if callable(getter):
+        return getter(name, default)
+    return getattr(state, name, default)
 
-    # Display the results
-    if final_state and final_state.travel_plan:
-        display_travel_plan(final_state.travel_plan)
-        return 0
-    elif final_state and final_state.error:
-        print(f"Error: {final_state.error}")
-        return 1
-    else:
+
+async def _run_query_mode_with_display(args: argparse.Namespace) -> int:
+    """Run query mode and safely display the generated narrative or raw plan."""
+    from pprint import pformat
+
+    final_state = await run_query_mode(args)
+    if not final_state:
         print("No travel plan was generated.")
         return 1
+
+    def value(obj, key, default=None):
+        getter = getattr(obj, "get", None)
+        if callable(getter):
+            return getter(key, default)
+        return getattr(obj, key, default)
+
+    plan = value(final_state, "plan")
+    error = value(final_state, "error")
+
+    # Prefer the narrative generated by query analysis. The structured search
+    # models currently contain incompatible dict/model shapes and demo Paris
+    # accommodation/transport data, so don't pass them blindly to the renderer.
+    overview = value(plan, "overview", "") if plan is not None else ""
+    if not isinstance(overview, str) or not overview.strip():
+        history = value(final_state, "conversation_history", []) or []
+        for message in reversed(history):
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                content = message.get("content")
+                if isinstance(content, str) and content.strip():
+                    overview = content.strip()
+                    break
+
+    if isinstance(overview, str) and overview.strip():
+        print("\n========== GENERATED TRAVEL PLAN ==========\n")
+        print(overview)
+        print(
+            "\nIMPORTANT: This run's structured search results contain mismatched demo records. "
+            "Do not treat the flight, hotel, or transport options as verified offers. "
+            "Confirm current schedules, locations, prices, and availability before booking."
+        )
+        alerts = value(plan, "alerts", []) if plan is not None else []
+        if alerts:
+            print("\nNotes:")
+            for alert in alerts:
+                print(f"- {alert}")
+        if error:
+            print(f"\nWorkflow note: {error}")
+        return 0
+
+    if plan is not None:
+        print("A structured plan was returned, but no narrative summary is available.")
+        print("Structured output (inspect before relying on it):")
+        if hasattr(plan, "model_dump"):
+            plan = plan.model_dump(mode="json")
+        print(pformat(plan, sort_dicts=False))
+        if error:
+            print(f"\nWorkflow note: {error}")
+        return 0
+
+    if error:
+        print(f"Travel planning did not produce a plan: {error}")
+    else:
+        print("The workflow completed without returning a displayable plan.")
+    return 1
 
 
 def _handle_configuration_error(e: Exception) -> int:

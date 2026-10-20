@@ -7,6 +7,7 @@ insights, and identifying points of interest for potential travel destinations.
 """
 
 from dataclasses import dataclass, field
+from pydantic import Field
 from typing import Any
 
 from travel_planner.agents.base import AgentConfig, AgentContext, BaseAgent
@@ -38,15 +39,14 @@ class DestinationInfo:
     cost_index: float = 0.0  # Relative cost of living index
 
 
-@dataclass
 class DestinationContext(AgentContext):
     """Context for the destination research agent."""
 
     query: str = ""
-    destinations: list[DestinationInfo] = field(default_factory=list)
+    destinations: list[DestinationInfo] = Field(default_factory=list)
     selected_destination: DestinationInfo | None = None
-    travel_dates: dict[str, str] = field(default_factory=dict)
-    search_results: dict[str, Any] = field(default_factory=dict)
+    travel_dates: dict[str, str] = Field(default_factory=dict)
+    search_results: dict[str, Any] = Field(default_factory=dict)
 
 
 class DestinationResearchAgent(BaseAgent[DestinationContext]):

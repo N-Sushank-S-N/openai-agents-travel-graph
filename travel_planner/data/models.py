@@ -113,10 +113,7 @@ class AgentTaskParams(BaseModel):
     result_processor: Any = (
         None  # Callable[[TravelPlanningState, dict[str, Any]], None] | None
     )
-    ENTERTAINMENT = "entertainment"
-    NATURE = "nature"
-    EDUCATIONAL = "educational"
-    NIGHTLIFE = "nightlife"
+
 
 
 class BudgetCategory(str, Enum):

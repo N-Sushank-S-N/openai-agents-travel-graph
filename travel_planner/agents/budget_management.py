@@ -6,6 +6,7 @@ optimizing, and managing the travel budget across all aspects of the trip.
 """
 
 from dataclasses import dataclass, field
+from pydantic import Field
 from enum import Enum
 from typing import Any
 
@@ -98,7 +99,6 @@ class BudgetRecommendation:
     alternatives: list[dict[str, Any]] = field(default_factory=list)
 
 
-@dataclass
 class BudgetContext(AgentContext):
     """Context for the budget management agent."""
 
@@ -106,12 +106,12 @@ class BudgetContext(AgentContext):
     currency: str = "USD"
     trip_duration_days: int = 0
     traveler_count: int = 1
-    allocations: dict[ExpenseCategory, BudgetAllocation] = field(default_factory=dict)
-    expenses: list[BudgetItem] = field(default_factory=list)
-    recommendations: list[BudgetRecommendation] = field(default_factory=list)
-    currency_conversions: dict[tuple[str, str], float] = field(default_factory=dict)
-    category_preferences: dict[ExpenseCategory, int] = field(default_factory=dict)
-    alerts: list[str] = field(default_factory=list)
+    allocations: dict[ExpenseCategory, BudgetAllocation] = Field(default_factory=dict)
+    expenses: list[BudgetItem] = Field(default_factory=list)
+    recommendations: list[BudgetRecommendation] = Field(default_factory=list)
+    currency_conversions: dict[tuple[str, str], float] = Field(default_factory=dict)
+    category_preferences: dict[ExpenseCategory, int] = Field(default_factory=dict)
+    alerts: list[str] = Field(default_factory=list)
 
 
 class BudgetManagementAgent(BaseAgent[BudgetContext]):

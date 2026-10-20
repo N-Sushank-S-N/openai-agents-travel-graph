@@ -71,7 +71,7 @@ class AgentExecutionError(TravelPlannerError):
     """Error raised when an agent fails to execute correctly."""
 
     def __init__(
-        self, message: str, agent_name: str, original_error: Exception | None = None
+        self, message: str, agent_name: str = "Unknown", original_error: Exception | None = None
     ):
         """
         Initialize an AgentExecutionError.

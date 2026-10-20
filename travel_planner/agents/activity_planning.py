@@ -5,7 +5,9 @@ This module implements the specialized agent responsible for researching,
 scheduling, and recommending activities and attractions for the travel itinerary.
 """
 
+import re
 from dataclasses import dataclass, field
+from pydantic import Field
 from datetime import datetime, time, timedelta
 from enum import Enum
 from typing import Any
@@ -113,7 +115,6 @@ class DailyItinerary:
     currency: str = "EUR"
 
 
-@dataclass
 class ActivityPlanningContext(AgentContext):
     """Context for the activity planning agent."""
 
@@ -121,16 +122,16 @@ class ActivityPlanningContext(AgentContext):
     start_date: str | None = None
     end_date: str | None = None
     traveler_count: int = 1
-    interests: list[str] = field(default_factory=list)
+    interests: list[str] = Field(default_factory=list)
     has_children: bool = False
     has_accessibility_needs: bool = False
     budget_per_day: float | None = None
     accommodation_location: str = ""
-    available_activities: list[Activity] = field(default_factory=list)
-    daily_itineraries: dict[str, DailyItinerary] = field(default_factory=dict)
-    weather_forecasts: dict[str, dict[str, Any]] = field(default_factory=dict)
-    search_params: dict[str, Any] = field(default_factory=dict)
-    excluded_activity_types: list[ActivityType] = field(default_factory=list)
+    available_activities: list[Activity] = Field(default_factory=list)
+    daily_itineraries: dict[str, DailyItinerary] = Field(default_factory=dict)
+    weather_forecasts: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    search_params: dict[str, Any] = Field(default_factory=dict)
+    excluded_activity_types: list[ActivityType] = Field(default_factory=list)
 
 
 class ActivityPlanningAgent(BaseAgent[ActivityPlanningContext]):
@@ -203,335 +204,57 @@ class ActivityPlanningAgent(BaseAgent[ActivityPlanningContext]):
             logger.error(error_msg)
             return {"error": error_msg}
 
-    async def process(
-        self, input_data: str | list[dict[str, Any]], context: ActivityPlanningContext
-    ) -> dict[str, Any]:
-        """
-        Process the activity planning request.
-
-        Args:
-            input_data: User input or conversation history
-            context: Activity planning context
-
-        Returns:
-            Activity planning results
-        """
-        # Extract activity preferences if not already set
+    async def process(self, input_data, context):
+        """Return an honest empty structured result until live activity research is integrated."""
+        if context is None:
+            context = ActivityPlanningContext()
         if not context.search_params:
             await self._extract_activity_preferences(input_data, context)
-
-        # Get available activities at the destination
-        if not context.available_activities:
-            context.available_activities = await self._research_activities(context)
-
-        # Get weather forecasts for the trip dates
-        if not context.weather_forecasts and context.start_date and context.end_date:
-            context.weather_forecasts = await self._get_weather_forecasts(context)
-
-        # Create daily itineraries
-        daily_itineraries = await self._create_daily_itineraries(context)
-        context.daily_itineraries = daily_itineraries
-
-        # Generate an itinerary summary
-        itinerary_summary = await self._generate_itinerary_summary(context)
-
+        context.available_activities = []
+        context.daily_itineraries = {}
         return {
             "context": context,
-            "daily_itineraries": daily_itineraries,
-            "summary": itinerary_summary,
+            "daily_itineraries": {},
+            "summary": (
+                f"No verified structured activity listings are available for {context.destination or 'this destination'}. "
+                "The main itinerary narrative may still contain suggested places; verify opening times and prices separately."
+            ),
         }
 
-    async def _extract_activity_preferences(
-        self, input_data: str | list[dict[str, Any]], context: ActivityPlanningContext
-    ) -> None:
-        """
-        Extract activity preferences from user input.
-
-        Args:
-            input_data: User input or conversation history
-            context: Activity planning context
-        """
-        # Prepare a specific prompt for preference extraction
-        extraction_prompt = (
-            "Please extract activity preferences from the following user input. "
-            "Include destination, trip dates, traveler details, interests, "
-            "budget constraints, and any excluded activity types. "
-            "Format your response as a JSON object.\n\n"
-            "User input: {input}"
-        )
-
-        user_input = (
-            input_data
-            if isinstance(input_data, str)
-            else self._get_latest_user_input(input_data)
-        )
-
-        messages = [
-            {"role": "system", "content": self.instructions},
-            {"role": "user", "content": extraction_prompt.format(input=user_input)},
-        ]
-
-        # Add current parameters as context if they exist
-        if context.search_params:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": f"Current parameters: {context.search_params}",
-                }
-            )
-
-        # In a real implementation, we would call the model and parse the JSON response
-        # response = await self._call_model(messages)
-
-        # But for now we'll skip the actual API call
-        # and update the context with the extracted preferences
-
-        # For now, we'll set some example values for demonstration
-        context.destination = "Paris, France"
-        context.start_date = "2025-06-15"
-        context.end_date = "2025-06-22"
-        context.traveler_count = 2
-        context.interests = ["art", "history", "food", "architecture", "local culture"]
-        context.has_children = False
-        context.has_accessibility_needs = False
-        context.budget_per_day = 100.0
-        context.accommodation_location = "15 Rue de Rivoli, 75001 Paris, France"
-        context.excluded_activity_types = [ActivityType.ADVENTURE]
-
-        # Store the parameters in the search_params dictionary
+    async def _extract_activity_preferences(self, input_data, context):
+        """Preserve supplied destination/trip details; no hard-coded demo destination."""
+        text = input_data if isinstance(input_data, str) else self._get_latest_user_input(input_data)
+        for line in text.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            key, value = key.strip().lower(), value.strip()
+            if key == "destination" and value and not context.destination:
+                context.destination = value
+            elif key == "travelers" and value:
+                try:
+                    context.traveler_count = int(value)
+                except ValueError:
+                    pass
+            elif key == "dates" and value:
+                dates = re.findall(r"\d{4}-\d{2}-\d{2}", value)
+                if dates and not context.start_date:
+                    context.start_date = dates[0]
+                if len(dates) > 1 and not context.end_date:
+                    context.end_date = dates[1]
         context.search_params = {
             "destination": context.destination,
             "start_date": context.start_date,
             "end_date": context.end_date,
             "traveler_count": context.traveler_count,
-            "interests": context.interests,
-            "has_children": context.has_children,
-            "has_accessibility_needs": context.has_accessibility_needs,
+            "interests": list(context.interests),
             "budget_per_day": context.budget_per_day,
-            "accommodation_location": context.accommodation_location,
-            "excluded_activity_types": [
-                t.value for t in context.excluded_activity_types
-            ],
         }
 
-    async def _research_activities(
-        self, context: ActivityPlanningContext
-    ) -> list[Activity]:
-        """
-        Research activities at the destination based on context preferences.
-
-        Args:
-            context: Activity planning context
-
-        Returns:
-            List of activities
-        """
-        # In a real implementation, this would call activity search APIs
-        # For demonstration, we'll create some mock activities
-
-        mock_activities = [
-            Activity(
-                id="act1",
-                name="Louvre Museum",
-                type=ActivityType.MUSEUM,
-                location="Rue de Rivoli, 75001 Paris, France",
-                description="World's largest art museum and historic monument "
-                "in Paris.",
-                price=17.0,
-                currency="EUR",
-                duration_minutes=180,
-                opening_hours={
-                    "Monday": {"open": time(9, 0), "close": time(18, 0)},
-                    "Tuesday": {"open": time(9, 0), "close": time(18, 0)},
-                    "Wednesday": {"open": time(9, 0), "close": time(18, 0)},
-                    "Thursday": {"open": time(9, 0), "close": time(18, 0)},
-                    "Friday": {"open": time(9, 0), "close": time(21, 0)},
-                    "Saturday": {"open": time(9, 0), "close": time(18, 0)},
-                    "Sunday": {"open": time(9, 0), "close": time(18, 0)},
-                },
-                booking_required=True,
-                booking_url="https://www.louvre.fr/en/visit",
-                weather_dependent=False,
-                rating=4.8,
-                reviews_count=140000,
-                tags=["art", "history", "culture"],
-                accessibility_features=["wheelchair_accessible", "elevators"],
-            ),
-            Activity(
-                id="act2",
-                name="Eiffel Tower",
-                type=ActivityType.ATTRACTION,
-                location="Champ de Mars, 5 Avenue Anatole France, 75007 Paris, France",
-                description="Iconic wrought-iron lattice tower on the Champ de Mars "
-                "in Paris.",
-                price=26.8,
-                currency="EUR",
-                duration_minutes=120,
-                opening_hours={
-                    "Monday": {"open": time(9, 30), "close": time(23, 45)},
-                    "Tuesday": {"open": time(9, 30), "close": time(23, 45)},
-                    "Wednesday": {"open": time(9, 30), "close": time(23, 45)},
-                    "Thursday": {"open": time(9, 30), "close": time(23, 45)},
-                    "Friday": {"open": time(9, 30), "close": time(23, 45)},
-                    "Saturday": {"open": time(9, 30), "close": time(23, 45)},
-                    "Sunday": {"open": time(9, 30), "close": time(23, 45)},
-                },
-                booking_required=True,
-                booking_url="https://www.toureiffel.paris/en",
-                weather_dependent=True,
-                suitable_weather=[WeatherCondition.SUNNY, WeatherCondition.CLOUDY],
-                rating=4.6,
-                reviews_count=220000,
-                tags=["landmark", "views", "architecture"],
-                accessibility_features=["elevator"],
-            ),
-            Activity(
-                id="act3",
-                name="Seine River Cruise",
-                type=ActivityType.TOUR,
-                location="Pont de l'Alma, 75008 Paris, France",
-                description="Sightseeing cruise along the Seine River with views "
-                "of Paris landmarks.",
-                price=15.0,
-                currency="EUR",
-                duration_minutes=60,
-                opening_hours={
-                    "Monday": {"open": time(10, 0), "close": time(22, 0)},
-                    "Tuesday": {"open": time(10, 0), "close": time(22, 0)},
-                    "Wednesday": {"open": time(10, 0), "close": time(22, 0)},
-                    "Thursday": {"open": time(10, 0), "close": time(22, 0)},
-                    "Friday": {"open": time(10, 0), "close": time(22, 0)},
-                    "Saturday": {"open": time(10, 0), "close": time(22, 0)},
-                    "Sunday": {"open": time(10, 0), "close": time(22, 0)},
-                },
-                weather_dependent=True,
-                suitable_weather=[WeatherCondition.SUNNY, WeatherCondition.CLOUDY],
-                rating=4.5,
-                reviews_count=75000,
-                tags=["sightseeing", "views", "relaxing"],
-                accessibility_features=["wheelchair_accessible"],
-            ),
-            Activity(
-                id="act4",
-                name="Montmartre Walking Tour",
-                type=ActivityType.TOUR,
-                location="Place du Tertre, 75018 Paris, France",
-                description="Guided walking tour of the charming Montmartre district.",
-                price=25.0,
-                currency="EUR",
-                duration_minutes=150,
-                opening_hours={
-                    "Monday": {"open": time(10, 0), "close": time(17, 0)},
-                    "Tuesday": {"open": time(10, 0), "close": time(17, 0)},
-                    "Wednesday": {"open": time(10, 0), "close": time(17, 0)},
-                    "Thursday": {"open": time(10, 0), "close": time(17, 0)},
-                    "Friday": {"open": time(10, 0), "close": time(17, 0)},
-                    "Saturday": {"open": time(10, 0), "close": time(17, 0)},
-                    "Sunday": {"open": time(10, 0), "close": time(17, 0)},
-                },
-                booking_required=True,
-                weather_dependent=True,
-                suitable_weather=[WeatherCondition.SUNNY, WeatherCondition.CLOUDY],
-                rating=4.7,
-                reviews_count=5000,
-                tags=["walking", "art", "history", "local culture"],
-            ),
-            Activity(
-                id="act5",
-                name="Parisian Food Tour",
-                type=ActivityType.FOOD,
-                location="Saint-Germain-des-Prés, 75006 Paris, France",
-                description="Culinary walking tour featuring tastings at "
-                "various shops and cafes.",
-                price=95.0,
-                currency="EUR",
-                duration_minutes=210,
-                opening_hours={
-                    "Monday": {"open": time(10, 30), "close": time(14, 30)},
-                    "Tuesday": {"open": time(10, 30), "close": time(14, 30)},
-                    "Wednesday": {"open": time(10, 30), "close": time(14, 30)},
-                    "Thursday": {"open": time(10, 30), "close": time(14, 30)},
-                    "Friday": {"open": time(10, 30), "close": time(14, 30)},
-                    "Saturday": {"open": time(10, 30), "close": time(14, 30)},
-                    "Sunday": {"open": time(10, 30), "close": time(14, 30)},
-                },
-                booking_required=True,
-                booking_url="https://www.parisfoodtours.com",
-                rating=4.9,
-                reviews_count=3200,
-                tags=["food", "walking", "local culture"],
-            ),
-            Activity(
-                id="act6",
-                name="Musée d'Orsay",
-                type=ActivityType.MUSEUM,
-                location="1 Rue de la Légion d'Honneur, 75007 Paris, France",
-                description="Museum housed in the former Orsay railway station, "
-                "featuring art from 1848 to 1914.",
-                price=16.0,
-                currency="EUR",
-                duration_minutes=150,
-                opening_hours={
-                    "Monday": {"open": time(0, 0), "close": time(0, 0)},  # Closed
-                    "Tuesday": {"open": time(9, 30), "close": time(18, 0)},
-                    "Wednesday": {"open": time(9, 30), "close": time(18, 0)},
-                    "Thursday": {"open": time(9, 30), "close": time(21, 45)},
-                    "Friday": {"open": time(9, 30), "close": time(18, 0)},
-                    "Saturday": {"open": time(9, 30), "close": time(18, 0)},
-                    "Sunday": {"open": time(9, 30), "close": time(18, 0)},
-                },
-                booking_required=True,
-                booking_url="https://www.musee-orsay.fr/en",
-                weather_dependent=False,
-                rating=4.7,
-                reviews_count=65000,
-                tags=["art", "history", "culture"],
-                accessibility_features=["wheelchair_accessible", "elevators"],
-            ),
-            Activity(
-                id="act7",
-                name="Luxembourg Gardens",
-                type=ActivityType.OUTDOOR,
-                location="15 Rue de Vaugirard, 75006 Paris, France",
-                description="Beautiful public park in the 6th arrondissement of Paris.",
-                price=0.0,
-                currency="EUR",
-                duration_minutes=90,
-                opening_hours={
-                    "Monday": {"open": time(7, 30), "close": time(21, 30)},
-                    "Tuesday": {"open": time(7, 30), "close": time(21, 30)},
-                    "Wednesday": {"open": time(7, 30), "close": time(21, 30)},
-                    "Thursday": {"open": time(7, 30), "close": time(21, 30)},
-                    "Friday": {"open": time(7, 30), "close": time(21, 30)},
-                    "Saturday": {"open": time(7, 30), "close": time(21, 30)},
-                    "Sunday": {"open": time(7, 30), "close": time(21, 30)},
-                },
-                weather_dependent=True,
-                suitable_weather=[WeatherCondition.SUNNY, WeatherCondition.CLOUDY],
-                rating=4.8,
-                reviews_count=35000,
-                tags=["outdoors", "relaxing", "scenic"],
-            ),
-        ]
-
-        # Filter out excluded activity types and filter by interests
-        filtered_activities = []
-        for activity in mock_activities:
-            if activity.type not in context.excluded_activity_types:
-                if not context.interests or any(
-                    tag in context.interests for tag in activity.tags
-                ):
-                    filtered_activities.append(activity)
-
-        # If no activities match the interests, return all non-excluded activities
-        if not filtered_activities:
-            filtered_activities = [
-                act
-                for act in mock_activities
-                if act.type not in context.excluded_activity_types
-            ]
-
-        return filtered_activities
+    async def _research_activities(self, context):
+        """Return no fabricated attraction entries when no live research provider is configured."""
+        logger.warning("No live activity-search provider configured; returning no demo attractions.")
+        return []
 
     async def _get_weather_forecasts(
         self, context: ActivityPlanningContext

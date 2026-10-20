@@ -5,7 +5,9 @@ This module implements the specialized agent responsible for searching,
 comparing, and recommending flight options for the travel itinerary.
 """
 
+import re
 from dataclasses import dataclass, field
+from pydantic import Field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -62,6 +64,21 @@ class FlightOption:
     amenities: list[str] = field(default_factory=list)
 
     @property
+    def airline(self) -> str:
+        """Compatibility accessor: airline of the first flight leg."""
+        return self.legs[0].airline if self.legs else "Unknown"
+
+    @property
+    def departure_time(self) -> str:
+        """Compatibility accessor: departure time of the first flight leg."""
+        return self.legs[0].departure_time if self.legs else ""
+
+    @property
+    def arrival_time(self) -> str:
+        """Compatibility accessor: arrival time of the first flight leg."""
+        return self.legs[0].arrival_time if self.legs else ""
+
+    @property
     def formatted_price(self) -> str:
         """Get the formatted price with currency symbol."""
         return format_price(self.price, self.currency)
@@ -73,7 +90,6 @@ class FlightOption:
         return f"{hours}h {minutes}m"
 
 
-@dataclass
 class FlightSearchContext(AgentContext):
     """Context for the flight search agent."""
 
@@ -85,11 +101,11 @@ class FlightSearchContext(AgentContext):
     cabin_class: CabinClass = CabinClass.ECONOMY
     max_price: float | None = None
     currency: str = "USD"
-    preferred_airlines: list[str] = field(default_factory=list)
-    flight_options: list[FlightOption] = field(default_factory=list)
+    preferred_airlines: list[str] = Field(default_factory=list)
+    flight_options: list[FlightOption] = Field(default_factory=list)
     selected_flight: FlightOption | None = None
-    search_params: dict[str, Any] = field(default_factory=dict)
-    search_results_raw: dict[str, Any] = field(default_factory=dict)
+    search_params: dict[str, Any] = Field(default_factory=dict)
+    search_results_raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class FlightSearchAgent(BaseAgent[FlightSearchContext]):
@@ -167,175 +183,59 @@ class FlightSearchAgent(BaseAgent[FlightSearchContext]):
             raise AgentExecutionError(error_msg, self.name, original_error=e) from e
 
     @handle_errors(error_cls=AgentExecutionError)
-    async def process(
-        self, input_data: str | list[dict[str, Any]], context: FlightSearchContext
-    ) -> dict[str, Any]:
-        """
-        Process the flight search request.
-
-        Args:
-            input_data: User input or conversation history
-            context: Flight search context
-
-        Returns:
-            Flight search results
-        """
-        self.logger.info(
-            f"Processing flight search for: {context.origin} to {context.destination}"
-        )
-
-        # Prepare messages for the model
-        self._prepare_messages(input_data)
-
-        # Extract search parameters if not already set
+    async def process(self, input_data, context):
+        """Run flight search without fabricating results or making redundant LLM calls."""
+        self.logger.info("Processing flight search for: %s to %s", context.origin, context.destination)
         if not context.origin or not context.destination or not context.departure_date:
             await self._extract_search_params(input_data, context)
-
-        # Perform the flight search
         search_results = await self._search_flights(context)
-
-        # Process and rank flight options
         ranked_options = await self._rank_flight_options(search_results, context)
-
-        # Store the top options in the context
         context.flight_options = ranked_options
-
-        # Generate a summary of the flight options
-        summary = await self._generate_options_summary(ranked_options, context)
-
+        if ranked_options:
+            summary = await self._generate_options_summary(ranked_options, context)
+        else:
+            summary = (
+                f"No verified flight offers are available for {context.origin or 'the origin'} "
+                f"to {context.destination or 'the destination'}. Configure a real flight-search provider."
+            )
         return {
-            "flight_options": [
-                self._format_flight_option(option) for option in ranked_options
-            ],
+            "flight_options": [self._format_flight_option(option) for option in ranked_options],
             "summary": summary,
         }
 
-    async def _extract_search_params(
-        self, input_data: str | list[dict[str, Any]], context: FlightSearchContext
-    ) -> None:
-        """
-        Extract flight search parameters from user input.
+    async def _extract_search_params(self, input_data, context):
+        """Extract only explicit travel fields; never invent origin or destination."""
+        text = input_data if isinstance(input_data, str) else self._get_latest_user_input(input_data)
+        for line in text.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            key = key.strip().lower()
+            value = value.strip()
+            if key == "origin" and value and not context.origin:
+                context.origin = value
+            elif key == "destination" and value and not context.destination:
+                context.destination = value
+            elif key == "travelers" and value:
+                try:
+                    context.travelers = int(value)
+                except (TypeError, ValueError, AttributeError):
+                    pass
+            elif key == "dates" and value:
+                dates = re.findall(r"\d{4}-\d{2}-\d{2}", value)
+                if dates and not context.departure_date:
+                    context.departure_date = dates[0]
+                if len(dates) > 1 and not context.return_date:
+                    context.return_date = dates[1]
+        self.logger.info("Using supplied flight-search fields; no live flight provider is configured.")
 
-        Args:
-            input_data: User input or conversation history
-            context: Flight search context
-        """
-        self.logger.info("Extracting flight search parameters")
-
-        # Prepare a specific prompt for parameter extraction
-        extraction_prompt = (
-            "Extract flight search parameters from the user's input. Include origin, destination, "
-            "dates, number of travelers, cabin class, and any airline preferences. If information "
-            "is missing, keep the current values. Format the output as a structured JSON object."
+    async def _search_flights(self, context):
+        """Return no offers until a real flight-search integration is configured."""
+        self.logger.warning(
+            "No live flight-search provider configured; refusing to return demo flight offers."
         )
-
-        user_input = (
-            input_data
-            if isinstance(input_data, str)
-            else self._get_latest_user_input(input_data)
-        )
-
-        messages = [
-            {"role": "system", "content": extraction_prompt},
-            {"role": "user", "content": user_input},
-        ]
-
-        # Add current parameters as context if they exist
-        if context and any(vars(context).values()):
-            messages.append(
-                {
-                    "role": "system",
-                    "content": f"Current parameters: {safe_serialize(context)}",
-                }
-            )
-
-        await self._call_model(messages)
-
-        # In a real implementation, we would parse the JSON response
-        # and update the context with the extracted parameters
-
-        # For now, we'll set some example values for demonstration
-        if not context.origin:
-            context.origin = "NYC"
-        if not context.destination:
-            context.destination = "LAX"
-        if not context.departure_date:
-            # Set departure date to tomorrow
-            tomorrow = datetime.now() + timedelta(days=1)
-            context.departure_date = tomorrow.strftime("%Y-%m-%d")
-        if not context.return_date:
-            # Set return date to one week from now
-            next_week = datetime.now() + timedelta(days=8)
-            context.return_date = next_week.strftime("%Y-%m-%d")
-
-    async def _search_flights(
-        self, context: FlightSearchContext
-    ) -> list[dict[str, Any]]:
-        """
-        Search for flights based on the context parameters.
-
-        Args:
-            context: Flight search context
-
-        Returns:
-            List of flight search results
-        """
-        self.logger.info(
-            f"Searching flights from {context.origin} to {context.destination}"
-        )
-
-        # In a real implementation, this would call flight search APIs
-        # For demonstration, we'll create some mock flight options
-
-        mock_flights = [
-            {
-                "id": "F1",
-                "airline": "Gamma Airways",
-                "price": 350.0,
-                "currency": context.currency,
-                "cabin_class": context.cabin_class.value,
-                "departure_time": "08:00",
-                "arrival_time": "11:30",
-                "duration_minutes": 210,
-                "layovers": [],
-                "baggage": "1 checked bag included",
-                "refundable": True,
-                "eco_friendly": True,
-            },
-            {
-                "id": "F2",
-                "airline": "Beta Airlines",
-                "price": 280.0,
-                "currency": context.currency,
-                "cabin_class": context.cabin_class.value,
-                "departure_time": "14:15",
-                "arrival_time": "19:45",
-                "duration_minutes": 330,
-                "layovers": ["ORD"],
-                "baggage": "Carry-on only",
-                "refundable": False,
-                "eco_friendly": False,
-            },
-            {
-                "id": "F3",
-                "airline": "Alpha Airlines",
-                "price": 420.0,
-                "currency": context.currency,
-                "cabin_class": context.cabin_class.value,
-                "departure_time": "10:30",
-                "arrival_time": "13:45",
-                "duration_minutes": 195,
-                "layovers": [],
-                "baggage": "2 checked bags included",
-                "refundable": True,
-                "eco_friendly": True,
-            },
-        ]
-
-        # Store the raw search results in the context
-        context.search_results_raw = {"flights": mock_flights}
-
-        return mock_flights
+        context.search_results_raw = {"flights": []}
+        return []
 
     async def _rank_flight_options(
         self, search_results: list[dict[str, Any]], context: FlightSearchContext

@@ -5,11 +5,14 @@ This module implements the foundational Agent class that all specialized
 agents in the travel planner system will inherit from. It provides common
 functionality and standardized interfaces for all agents.
 """
-
+import os
+import asyncio
+import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
-
-from openai import OpenAI
+from dotenv import load_dotenv
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 # Type variable for context
@@ -32,7 +35,8 @@ class InvalidConfigurationError(TravelPlannerAgentError):
     """Exception raised when agent configuration is invalid."""
 
     pass
-
+# Backward compatibility for existing tests and callers
+InvalidConfigurationException = InvalidConfigurationError
 
 @dataclass
 class AgentConfig:
@@ -40,7 +44,11 @@ class AgentConfig:
 
     name: str
     instructions: str
-    model: str = "gpt-4o"
+    model: str = field(
+        default_factory=lambda: os.getenv(
+            "DEFAULT_MODEL", "gemini-3.8-flash"
+        )
+    )
     temperature: float = 0.7
     max_tokens: int | None = None
     tools: list[Any] = field(default_factory=list)
@@ -71,7 +79,29 @@ class BaseAgent(Generic[T]):
             context_type: Type of context this agent handles (optional)
         """
         self.config = config
-        self.client = OpenAI()
+        # Use Gemini for legacy GPT model defaults when configured.
+        if (
+            os.getenv("GEMINI_API_KEY")
+            and "generativelanguage.googleapis.com"
+            in os.getenv("OPENAI_BASE_URL", "")
+            and getattr(config, "model", "").startswith("gpt-")
+        ):
+            config.model = os.getenv("DEFAULT_MODEL", "gemini-3.8-flash")
+        load_dotenv()
+
+        gemini_key = os.getenv("GEMINI_API_KEY")
+
+        if gemini_key:
+            base_url = os.getenv(
+                "OPENAI_BASE_URL",
+                "https://generativelanguage.googleapis.com/v1beta/openai/",
+            )
+            self.client = AsyncOpenAI(
+                api_key=gemini_key.strip(),
+                base_url=base_url.strip(),
+            )
+        else:
+            self.client = AsyncOpenAI()
         self.context_type = context_type or AgentContext
 
     @property
@@ -84,6 +114,50 @@ class BaseAgent(Generic[T]):
         """Get the instructions for the agent."""
         return self.config.instructions
 
+    def invoke(self, state: Any) -> dict[str, Any]:
+        """Synchronously adapt the workflow state to the async agent interface."""
+
+        query = getattr(getattr(state, "query", None), "raw_query", "")
+        state_data = (
+            state.model_dump(mode="json")
+            if hasattr(state, "model_dump")
+            else {}
+        )
+
+        input_text = (
+            "Perform your assigned travel-planning task using the current state.\n"
+            f"User request: {query}\n"
+            "Current state as JSON:\n"
+            f"{json.dumps(state_data, ensure_ascii=False, default=str)}\n\n"
+            "Return a JSON object containing the structured results relevant to "
+            "your agent's task."
+        )
+
+        async def call_agent() -> Any:
+            result = await self.run(input_text)
+            response = result.get("response", result) if isinstance(result, dict) else result
+
+            if isinstance(response, dict):
+                content = response.get("content")
+                if isinstance(content, str):
+                    try:
+                        parsed = json.loads(content)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+                return response
+
+            return {"content": str(response)}
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(call_agent())
+
+        # If a loop is already running, execute the coroutine in a separate thread.
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(lambda: asyncio.run(call_agent())).result()
     async def run(
         self, input_data: str | list[dict[str, Any]], context: T | None = None
     ) -> Any:

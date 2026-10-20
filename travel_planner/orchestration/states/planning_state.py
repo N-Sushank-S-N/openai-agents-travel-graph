@@ -48,7 +48,7 @@ class TravelPlanningState(BaseModel):
     # Interruption handling
     interrupted: bool = False
     interruption_reason: str | None = None
-    checkpoint_id: str | None = None
+    saved_checkpoint_id: str | None = None
 
     # Progress tracking
     progress: float = 0.0  # 0.0 to 1.0
@@ -114,7 +114,7 @@ class TravelPlanningState(BaseModel):
         self.update_stage(WorkflowStage.INTERRUPTED)
         # Preserve the actual stage we were interrupted at
         self.previous_stage = previous_stage
-        self.checkpoint_id = f"checkpoint_{uuid.uuid4().hex}"
+        self.saved_checkpoint_id = f"checkpoint_{uuid.uuid4().hex}"
 
     def mark_error(self, error_message: str) -> None:
         """
@@ -192,10 +192,10 @@ class TravelPlanningState(BaseModel):
         checkpoint_data = self.model_dump()
 
         # Generate a unique checkpoint ID if not already set
-        if not self.checkpoint_id:
-            self.checkpoint_id = f"checkpoint_{uuid.uuid4().hex}"
+        if not self.saved_checkpoint_id:
+            self.saved_checkpoint_id = f"checkpoint_{uuid.uuid4().hex}"
 
-        checkpoint_data["checkpoint_id"] = self.checkpoint_id
+        checkpoint_data["checkpoint_id"] = self.saved_checkpoint_id
         checkpoint_data["checkpoint_time"] = datetime.now().isoformat()
 
         # Convert datetime objects to ISO format strings for serialization
@@ -250,7 +250,9 @@ class TravelPlanningState(BaseModel):
                 self.stage_times[stage] = datetime.fromisoformat(time_str)
 
         # Now update all the basic attributes
-        excluded_fields = ["start_time", "last_update_time", "stage_times"]
+        excluded_fields = ["start_time", "last_update_time", "stage_times", "checkpoint_id"]
         for key, value in checkpoint_data.items():
             if key not in excluded_fields and hasattr(self, key):
                 setattr(self, key, value)
+        if checkpoint_data.get("checkpoint_id"):
+            self.saved_checkpoint_id = checkpoint_data["checkpoint_id"]

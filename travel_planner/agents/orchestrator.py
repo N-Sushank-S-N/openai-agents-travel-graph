@@ -9,7 +9,7 @@ proper handoffs between different components of the system.
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-
+from pydantic import Field
 from travel_planner.agents.base import AgentConfig, AgentContext, BaseAgent
 from travel_planner.utils import (
     AgentExecutionError,
@@ -50,24 +50,25 @@ class TravelRequirements:
     additional_notes: str | None = None
 
 
-@dataclass
 class OrchestratorContext(AgentContext):
     """Context for the orchestrator agent."""
 
     session_id: str
     planning_stage: PlanningStage = PlanningStage.INITIAL
-    travel_requirements: TravelRequirements = field(default_factory=TravelRequirements)
-    destination_details: dict[str, Any] = field(default_factory=dict)
-    flight_options: list[dict[str, Any]] = field(default_factory=list)
-    accommodation_options: list[dict[str, Any]] = field(default_factory=list)
-    transportation_options: list[dict[str, Any]] = field(default_factory=list)
-    activity_options: list[dict[str, Any]] = field(default_factory=list)
-    budget_allocation: dict[str, float] = field(default_factory=dict)
-    selected_options: dict[str, Any] = field(default_factory=dict)
-    user_feedback: dict[str, Any] = field(default_factory=dict)
-    final_itinerary: dict[str, Any] = field(default_factory=dict)
-    conversation_history: list[dict[str, Any]] = field(default_factory=list)
 
+    travel_requirements: TravelRequirements = Field(
+        default_factory=TravelRequirements
+    )
+    destination_details: dict[str, Any] = Field(default_factory=dict)
+    flight_options: list[dict[str, Any]] = Field(default_factory=list)
+    accommodation_options: list[dict[str, Any]] = Field(default_factory=list)
+    transportation_options: list[dict[str, Any]] = Field(default_factory=list)
+    activity_options: list[dict[str, Any]] = Field(default_factory=list)
+    budget_allocation: dict[str, float] = Field(default_factory=dict)
+    selected_options: dict[str, Any] = Field(default_factory=dict)
+    user_feedback: dict[str, Any] = Field(default_factory=dict)
+    final_itinerary: dict[str, Any] = Field(default_factory=dict)
+    conversation_history: list[dict[str, Any]] = Field(default_factory=list)
 
 class OrchestratorAgent(BaseAgent[OrchestratorContext]):
     """
@@ -124,7 +125,21 @@ class OrchestratorAgent(BaseAgent[OrchestratorContext]):
             # Create a new context with a generated session ID
             from travel_planner.utils.helpers import generate_session_id
 
-            context = OrchestratorContext(session_id=generate_session_id())
+            context = OrchestratorContext(
+                session_id=generate_session_id(),
+                planning_stage=PlanningStage.INITIAL,
+                travel_requirements=TravelRequirements(),
+                destination_details={},
+                flight_options=[],
+                accommodation_options=[],
+                transportation_options=[],
+                activity_options=[],
+                budget_allocation={},
+                selected_options={},
+                user_feedback={},
+                final_itinerary={},
+                conversation_history=[],
+            )
 
         # Add user input to conversation history
         if isinstance(input_data, str):
@@ -170,10 +185,8 @@ class OrchestratorAgent(BaseAgent[OrchestratorContext]):
 
         # Extract or update requirements from the user input
         if context.planning_stage == PlanningStage.INITIAL:
-            updated_requirements = await self._extract_requirements(
-                input_data, context.travel_requirements
-            )
-            context.travel_requirements = updated_requirements
+            # Requirement parsing is not implemented yet.
+            # The complete query and structured trip details are sent below.
             context.planning_stage = PlanningStage.DESTINATION_RESEARCH
 
         # Determine the next planning stage based on the current stage and context

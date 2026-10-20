@@ -1,11 +1,5 @@
-"""
-Final plan generation node implementation for the travel planning workflow.
-
-This module defines the function that generates the final travel plan by
-integrating all components and creating a comprehensive output.
-"""
-
-from travel_planner.agents.orchestrator import OrchestratorAgent
+"""Finalization node for an already generated travel-planning response."""
+from travel_planner.data.models import TravelPlan
 from travel_planner.orchestration.states.planning_state import TravelPlanningState
 from travel_planner.orchestration.states.workflow_stages import WorkflowStage
 from travel_planner.utils.logging import get_logger
@@ -14,52 +8,53 @@ logger = get_logger(__name__)
 
 
 def generate_final_plan(state: TravelPlanningState) -> TravelPlanningState:
-    """
-    Generate the final travel plan with all components.
+    """Finalize the current plan without another model request."""
+    logger.info("Finalizing travel plan from existing workflow results")
+    if state.plan is None:
+        state.plan = TravelPlan()
 
-    Args:
-        state: Current travel planning state
+    # The query-analysis agent already generated a complete narrative response.
+    answer = ""
+    for message in reversed(state.conversation_history or []):
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                answer = content.strip()
+                break
 
-    Returns:
-        Updated travel planning state with complete plan
-    """
-    from travel_planner.orchestration.serialization.checkpoint import (
-        save_state_checkpoint,
+    if answer and not state.plan.overview:
+        state.plan.overview = answer
+
+    query = state.query
+    destination = getattr(query, "destination", None) if query is not None else None
+    if destination and not state.plan.destination:
+        state.plan.destination = {"name": destination, "source": "user-provided query"}
+
+    if not answer and not state.plan.overview:
+        state.plan.overview = (
+            "A complete narrative could not be generated in this run. "
+            "Structured results may be incomplete; verify all details before travel."
+        )
+        state.plan.alerts.append("No assistant itinerary text was available during finalization.")
+
+    state.update_stage(WorkflowStage.COMPLETE)
+    result = {"reused_existing_answer": bool(answer), "destination": destination}
+    state.add_task_result("generate_final_plan", result)
+    state.conversation_history.append(
+        {"role": "system", "content": "Finalization completed using the existing itinerary response; no extra model call was made."}
     )
 
+    # Best-effort checkpoint only; the itinerary should remain usable if checkpoint
+    # serialization hits the repository's existing data-model inconsistencies.
     try:
-        logger.info("Generating final travel plan")
-
-        orchestrator = OrchestratorAgent()
-        result = orchestrator.invoke(state)
-
-        # Update state with final plan
-        state.plan = result.get("final_plan", state.plan)
-        state.update_stage(WorkflowStage.COMPLETE)
-
-        # Create and save a checkpoint of the final state
+        from travel_planner.orchestration.serialization.checkpoint import save_state_checkpoint
         checkpoint_id = save_state_checkpoint(state)
-        state.checkpoint_id = checkpoint_id
+        if hasattr(state, "saved_checkpoint_id"):
+            state.saved_checkpoint_id = checkpoint_id
+        elif hasattr(state, "checkpoint_id"):
+            state.checkpoint_id = checkpoint_id
+    except Exception as exc:
+        logger.warning(f"Checkpoint skipped because state serialization failed: {exc!s}")
 
-        # Add completion info to conversation history
-        state.conversation_history.append(
-            {
-                "role": "system",
-                "content": f"Travel planning completed successfully. Final plan saved as checkpoint {checkpoint_id}",
-            }
-        )
-
-        # Record task result
-        state.add_task_result("generate_final_plan", result)
-
-        logger.info(
-            f"Final plan generated successfully. Checkpoint ID: {checkpoint_id}"
-        )
-        return state
-
-    except Exception as e:
-        logger.error(f"Error during final plan generation: {e!s}")
-        state.mark_error(f"Error during final plan generation: {e!s}")
-        if state.should_retry("generate_final_plan"):
-            logger.info("Will retry final plan generation")
-        return state
+    logger.info("Finalization completed")
+    return state

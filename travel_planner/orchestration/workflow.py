@@ -9,7 +9,7 @@ import traceback
 from datetime import datetime
 from typing import Any, cast
 
-from langgraph.errors import GraphError, InterruptibleError, NodeError, ValidationError
+from pydantic import ValidationError
 
 from travel_planner.data.models import TravelPlan, TravelQuery, UserPreferences
 from travel_planner.orchestration.core.agent_registry import register_default_agents
@@ -85,26 +85,18 @@ class TravelWorkflow:
             )
             # Create a minimal plan with error information
             return self._create_error_plan(e, "validation_error")
-        except NodeError as e:
-            # Handle specific node execution errors
-            logger.error(f"Node error in workflow: {e!s}")
-            node_name = getattr(e, "node_name", "unknown")
-            logger.error(f"Error occurred in node: {node_name}")
-            # Create a partial plan with what we have so far
-            initial_state.error = f"Error in {node_name} stage: {e!s}"
-            return self._create_error_plan(e, f"node_error_{node_name}")
-        except InterruptibleError as e:
-            # Handle interruptions (could be user-triggered or system-triggered)
-            logger.info(f"Workflow interrupted: {e!s}")
-            # Return partial results or resume later
-            return self._handle_interruption(initial_state, e)
-        except GraphError as e:
-            # Handle graph structure or execution errors
-            logger.error(f"Graph error in workflow: {e!s}")
-            initial_state.error = f"Workflow error: {e!s}"
-            return self._create_error_plan(e, "graph_error")
         except Exception as e:
             # Handle any other unexpected errors
+            error_kind = type(e).__name__
+            if error_kind == "ValidationError":
+                return self._create_error_plan(e, "validation_error")
+            if error_kind == "NodeError":
+                node_name = getattr(e, "node_name", "unknown")
+                return self._create_error_plan(e, f"node_error_{node_name}")
+            if error_kind == "InterruptibleError":
+                return self._handle_interruption(initial_state, e)
+            if error_kind == "GraphError":
+                return self._create_error_plan(e, "graph_error")
             logger.error(f"Unexpected error in travel planning workflow: {e!s}")
             logger.error(traceback.format_exc())
             initial_state.error = f"Unexpected error: {e!s}"
@@ -172,6 +164,16 @@ class TravelWorkflow:
             return self._create_error_plan(e, "graph_error")
         except Exception as e:
             # Handle any other unexpected errors
+            error_kind = type(e).__name__
+            if error_kind == "ValidationError":
+                return self._create_error_plan(e, "validation_error")
+            if error_kind == "NodeError":
+                node_name = getattr(e, "node_name", "unknown")
+                return self._create_error_plan(e, f"node_error_{node_name}")
+            if error_kind == "InterruptibleError":
+                return self._handle_interruption(initial_state, e)
+            if error_kind == "GraphError":
+                return self._create_error_plan(e, "graph_error")
             logger.error(f"Unexpected error in async travel planning workflow: {e!s}")
             logger.error(traceback.format_exc())
             initial_state.error = f"Unexpected error: {e!s}"
@@ -203,6 +205,11 @@ class TravelWorkflow:
             logger.error(f"Error executing graph: {e!s}")
             raise
 
+    async def execute(
+        self, initial_state: TravelPlanningState
+    ) -> TravelPlanningState:
+        """Public asynchronous entry point for executing the workflow."""
+        return await self._execute_graph_async(initial_state)
     async def _execute_graph_async(
         self, initial_state: TravelPlanningState
     ) -> TravelPlanningState:
@@ -255,7 +262,7 @@ class TravelWorkflow:
         return error_plan
 
     def _handle_interruption(
-        self, state: TravelPlanningState, interrupt_error: InterruptibleError
+        self, state: TravelPlanningState, interrupt_error: Exception
     ) -> TravelPlan:
         """
         Handle workflow interruption by creating a partial travel plan.
@@ -279,7 +286,7 @@ class TravelWorkflow:
                 "timestamp": datetime.now().isoformat(),
                 "current_stage": str(state.current_stage),
                 "resumable": True,
-                "checkpoint_id": state.checkpoint_id
+                "checkpoint_id": state.saved_checkpoint_id
                 or f"auto_{datetime.now().strftime('%Y%m%d%H%M%S')}",
             }
         )
@@ -292,8 +299,8 @@ class TravelWorkflow:
         )
 
         # Store the interrupted state for possible resumption
-        if not state.checkpoint_id:
-            state.checkpoint_id = partial_plan.metadata["checkpoint_id"]
+        if not state.saved_checkpoint_id:
+            state.saved_checkpoint_id = partial_plan.metadata["checkpoint_id"]
             self._store_interrupted_state(state)
 
         return partial_plan

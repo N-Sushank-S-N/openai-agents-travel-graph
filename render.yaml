@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: ai-travel-planner
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: uv sync --locked --no-dev
+    startCommand: uv run --no-sync streamlit run web_app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.5
+      - key: PYTHONIOENCODING
+        value: utf-8
+      - key: OPENAI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: DEFAULT_MODEL
+        value: gemini-3.8-flash
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: RAILRADAR_API_KEY
+        sync: false
