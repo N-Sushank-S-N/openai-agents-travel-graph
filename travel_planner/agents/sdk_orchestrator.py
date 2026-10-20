@@ -239,6 +239,56 @@ async def _run_sdk(user_input: str) -> tuple[str, str]:
         await client.close()
 
 
+
+async def _run_query_analysis_sdk(user_input: str) -> tuple[str, str]:
+    """Use one short SDK call for query analysis; do not launch the full planner."""
+    config = _provider_config()
+    if not config:
+        raise RuntimeError("No SDK provider credentials configured")
+
+    provider, api_key, model_and_url = config
+    model_name, _, base_url = model_and_url.partition("|")
+    Agent, Runner, OpenAIChatCompletionsModel, _, AsyncOpenAI, set_tracing_disabled = _sdk_components()
+
+    try:
+        set_tracing_disabled(True)
+    except Exception:
+        pass
+
+    kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "timeout": 60.0,
+        "max_retries": 0,
+    }
+    if base_url:
+        kwargs["base_url"] = base_url
+
+    client = AsyncOpenAI(**kwargs)
+    try:
+        model = OpenAIChatCompletionsModel(
+            model=model_name,
+            openai_client=client,
+        )
+        analyzer = Agent(
+            name="Travel Query Analyzer",
+            model=model,
+            instructions=(
+                "Analyze the travel request only. Return a concise JSON object with "
+                "origin, destination, duration_days, departure_date, return_date, "
+                "travelers, budget_min, budget_max, interests, and special_requirements. "
+                "Use null for unknown values. Do not create an itinerary, browse websites, "
+                "delegate to other agents, or invent missing details."
+            ),
+        )
+        result = await Runner.run(analyzer, user_input[:6000], max_turns=1)
+        output = result.final_output
+        if not isinstance(output, str):
+            output = json.dumps(output, ensure_ascii=False, default=str)
+        return output, provider
+    finally:
+        await client.close()
+
+
 class OrchestratorAgent:
     """Drop-in replacement expected by query_analysis.py, preserving the legacy result envelope."""
     def __init__(self) -> None:
@@ -260,13 +310,13 @@ class OrchestratorAgent:
             logger.warning("Agents SDK has no provider credentials; using legacy orchestrator")
             return await self._run_legacy(user_input)
         try:
-            output, provider = await _run_sdk(user_input)
+            output, provider = await _run_query_analysis_sdk(user_input)
             return {
                 "context": {},
                 "response": {"content": output},
                 "error": None,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "agent_sdk": {"enabled": True, "provider": provider, "delegated_specialists": 5},
+                "agent_sdk": {"enabled": True, "provider": provider, "delegated_specialists": 0, "mode": "query_analysis"},
             }
         except RuntimeError as exc:
             # Dependency/credential setup issues may use the legacy implementation.
