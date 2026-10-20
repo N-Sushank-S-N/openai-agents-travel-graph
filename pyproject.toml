@@ -21,12 +21,12 @@ classifiers = [
 ]
 dependencies = [
     # Core frameworks
-    "openai-agents>=0.0.14",  # OpenAI Agents SDK (latest version as of May 2025)
+    "openai-agents==0.24.0",  # OpenAI Agents SDK (latest version as of May 2025)
     "agents-sdk-models>=0.0.11",  # Model adapters for OpenAI Agents SDK
     "langchain>=0.1.0",  # LangChain Core
     "langgraph>=0.4.0",  # LangGraph for agent orchestration
     "stagehand-py>=0.3.6",  # Browser automation (latest version as of May 2025)
-    "supabase>=2.1.0",  # Supabase integration
+    "supabase==2.33.0",  # Supabase integration
     # Browser automation
     "playwright>=1.42.0",  # Required by Stagehand
     # Utility libraries
@@ -103,3 +103,7 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
 asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+include = ["travel_planner*"]
+exclude = ["supabase*"]
