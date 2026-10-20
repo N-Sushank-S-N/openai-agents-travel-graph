@@ -159,3 +159,24 @@ preflight_tavily_firecrawl.py
 integrate_tavily_firecrawl_once.py
 fix_web_research_test_isolation.py
 travel_planner/orchestration/core/graph_builder.py.bak
+
+# API keys and local secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Python environment and cache
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Temporary debugging files
+.repair-backups/
+repair_*.py
+preflight_tavily_firecrawl.py
+integrate_tavily_firecrawl_once.py
+fix_web_research_test_isolation.py
+fix_redbus_direct_link.py
+repair_agent_logger_v1.py
+travel_planner/orchestration/core/graph_builder.py.bak

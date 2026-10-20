@@ -104,11 +104,10 @@ class ServiceRateLimiter:
         self.config = config
         self.quota_usage = QuotaUsage()
 
-        # Create AsyncLimiter with requests_per_minute / 60 = requests per second
-        requests_per_second = max(
-            0.02, config.requests_per_minute / 60
-        )  # minimum of 1 request per 50 seconds
-        self.limiter = AsyncLimiter(requests_per_second, 1)
+        # AsyncLimiter capacity must accommodate one whole request token.
+        # Enforce the configured requests-per-minute rate over a 60-second window.
+        requests_per_minute = max(1, config.requests_per_minute)
+        self.limiter = AsyncLimiter(requests_per_minute, 60)
 
         # Track request timestamps for windowed rate limiting
         self.request_timestamps: list[float] = []

@@ -2,7 +2,7 @@
 from travel_planner.utils.web_research_once import collect_destination_research
 
 
-from travel_planner.agents.orchestrator import OrchestratorAgent
+from travel_planner.agents.sdk_orchestrator import OrchestratorAgent
 from travel_planner.orchestration.states.planning_state import TravelPlanningState
 from travel_planner.orchestration.states.workflow_stages import WorkflowStage
 from travel_planner.utils.logging import get_logger

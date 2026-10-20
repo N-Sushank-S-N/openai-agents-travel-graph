@@ -11,7 +11,7 @@ from travel_planner.orchestration.nodes.budget_management import budget_manageme
 from travel_planner.orchestration.nodes.destination_research import (
     destination_research,
 )
-from travel_planner.orchestration.nodes.final_plan import generate_final_plan
+from travel_planner.orchestration.nodes.final_plan_persistent import generate_final_plan
 from travel_planner.orchestration.nodes.parallel_search import (
     combine_search_results,
     create_parallel_search_branch,

@@ -53,6 +53,32 @@ with plan_tab:
             destination = st.text_input("Destination", value="Chennai", key="plan_destination")
             min_budget = st.number_input("Minimum budget (INR)", min_value=0, value=5000, step=500)
             max_budget = st.number_input("Maximum budget (INR)", min_value=0, value=8000, step=500)
+
+        st.markdown("**Traveler preferences**")
+        pref_left, pref_right = st.columns(2)
+        with pref_left:
+            travel_style = st.selectbox(
+                "Travel style", ["Balanced", "Budget", "Comfort", "Adventure", "Relaxed", "Cultural"],
+                index=0, key="plan_travel_style",
+            )
+            interests = st.multiselect(
+                "Interests", ["Culture & history", "Food", "Nature", "Beaches", "Shopping", "Adventure", "Nightlife"],
+                default=["Culture & history", "Food"], key="plan_interests",
+            )
+        with pref_right:
+            accommodation_preference = st.selectbox(
+                "Accommodation", ["No preference", "Hostel", "Budget hotel", "Private hotel", "Apartment / homestay"],
+                key="plan_accommodation_preference",
+            )
+            pace_preference = st.selectbox(
+                "Trip pace", ["Balanced", "Slow and relaxed", "Packed sightseeing"],
+                key="plan_pace_preference",
+            )
+        special_requirements = st.text_input(
+            "Special requirements (optional)",
+            placeholder="e.g., vegetarian food, accessibility, traveling with children",
+            key="plan_special_requirements",
+        )
         submitted = st.form_submit_button("Generate itinerary", type="primary", use_container_width=True)
 
     if submitted:
@@ -76,9 +102,15 @@ with plan_tab:
             st.error("Missing required deployment environment variables: " + ", ".join(missing))
             st.stop()
 
+        preference_summary = (
+            f"Travel style: {travel_style}; interests: {', '.join(interests) if interests else 'not specified'}; "
+            f"accommodation preference: {accommodation_preference}; trip pace: {pace_preference}; "
+            f"special requirements: {special_requirements.strip() or 'none'}."
+        )
         query = (
             f"Plan a {int(days)}-day trip for {int(travelers)} traveler(s) from {origin} to {destination}. "
-            f"Budget: INR {int(min_budget)}-{int(max_budget)}. Use web research for destination-specific guidance. "
+            f"Budget: INR {int(min_budget)}-{int(max_budget)}. {preference_summary} "
+            f"Use web research for destination-specific guidance. "
             "Clearly label estimated costs and do not invent bookable offers or live availability. "
             "Do not report flight, hotel, train, or bus prices as verified unless a provider explicitly supplies them."
         )

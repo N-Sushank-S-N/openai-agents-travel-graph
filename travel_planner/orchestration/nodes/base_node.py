@@ -15,7 +15,12 @@ from travel_planner.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def execute_agent_task(params: AgentTaskParams) -> TravelPlanningState:
+def execute_agent_task(params: AgentTaskParams | None = None, **kwargs: Any) -> TravelPlanningState:
+    # Support both AgentTaskParams and legacy keyword-based node calls.
+    if params is None:
+        params = AgentTaskParams(**kwargs)
+    elif kwargs:
+        raise TypeError('Pass params or keyword arguments, not both')
     """
     Generic function to execute an agent task and update state.
 

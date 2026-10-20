@@ -15,6 +15,12 @@ services:
         value: https://generativelanguage.googleapis.com/v1beta/openai/
       - key: DEFAULT_MODEL
         value: gemini-3.8-flash
+      - key: TRAVEL_LLM_PROVIDER
+        value: gemini
+      - key: TRAVEL_USE_OPENAI_AGENTS_SDK
+        value: "1"
+      - key: TRAVEL_BROWSER_CALL_LIMIT
+        value: "1"
       - key: GEMINI_API_KEY
         sync: false
       - key: SUPABASE_URL
