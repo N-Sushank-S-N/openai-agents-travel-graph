@@ -159,7 +159,7 @@ async def _run_sdk(user_input: str) -> tuple[str, str]:
     except Exception:
         pass
 
-    client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": 45.0, "max_retries": 1}
+    client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": 120.0, "max_retries": 1}
     if base_url:
         client_kwargs["base_url"] = base_url
     client = AsyncOpenAI(**client_kwargs)
